@@ -37,12 +37,12 @@ void Sensors::readIMU(State &state) {
 
 void Sensors::readBaro(State &state) {
     state.temperature = bmp.readTemperature();
-    state.pressure    = bmp.readPressure() / 100.0f;  // Pa → hPa
+    state.pressure    = bmp.readPressure() / 100.0f;  // Pa -> hPa
     state.baroAlt     = bmp.readAltitude(SEA_LEVEL_HPA);
 
     unsigned long now = millis();
-    if (state.pressureCount == 0 || (now - lastPressureSample) >= PRESSURE_SAMPLE_INTERVAL) {
-        state.addPressureSample(state.pressure);
+    if (state.pressure1mCount == 0 || (now - lastPressureSample) >= PRESSURE_SAMPLE_INTERVAL) {
+        state.addSample(state.pressure, state.windSpeedTrue, state.windDirectionTrue);
         lastPressureSample = now;
     }
 }

@@ -8,5 +8,6 @@ public:
     int  run(const m5::touch_detail_t &t, State &state) override;
 
 private:
-    unsigned long lastDraw = 0;
+    unsigned long lastDraw  = 0;
+    int           viewHours = 3;   // cycles: 3 -> 12 -> 24 -> 3 on tap
 };

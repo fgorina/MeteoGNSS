@@ -88,8 +88,8 @@ void GNSSScreen::draw(State &state) {
 
 int GNSSScreen::run(const m5::touch_detail_t &t, State &state) {
     if (t.wasFlicked()) {
-        if (t.distanceX() > 5) return 1;  // swipe right → Pressure
-        if (t.distanceX() < -5) return 0;  // swipe left → Meteo
+        if (t.distanceX() > 5) return 1;  // swipe right -> Pressure
+        if (t.distanceX() < -5) return 3;  // swipe left -> Summary
     }
     unsigned long now = millis();
     if ((now - lastDraw) >= 1000UL) {

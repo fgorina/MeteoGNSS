@@ -32,6 +32,7 @@ void NetWebServer::handlePreferences() {
                  "<tr><td>Use N2k:</td><td><input type=\"checkbox\" name=\"usen2k\" value=\"on\"" + (config->useN2k ? chk : "") + "></td></tr>"
                  "<tr><td>Use SignalK:</td><td><input type=\"checkbox\" name=\"usesk\" value=\"on\"" + (config->useSK ? chk : "") + "></td></tr>"
                  "<tr><td>Use NMEA0183:</td><td><input type=\"checkbox\" name=\"use0183\" value=\"on\"" + (config->use0183 ? chk : "") + "></td></tr>"
+                 "<tr><td>Send GNSS:</td><td><input type=\"checkbox\" name=\"sendgnss\" value=\"on\"" + (config->sendGNSS ? chk : "") + "></td></tr>"
                  "<tr><td colspan=2 align=center><input type=\"submit\" value=\"Desa\"></td></tr>"
                  "</table></form></body></html>";
     server.send(200, "text/html", out);
@@ -42,9 +43,10 @@ void NetWebServer::handleUpdatePreferences() {
     if (server.hasArg("password")) config->wifiPassword = server.arg("password");
     if (server.hasArg("skserver")) config->skServer     = server.arg("skserver");
     if (server.hasArg("skport"))   config->skPort       = server.arg("skport").toInt();
-    config->useN2k  = server.hasArg("usen2k");
-    config->useSK   = server.hasArg("usesk");
-    config->use0183 = server.hasArg("use0183");
+    config->useN2k   = server.hasArg("usen2k");
+    config->useSK    = server.hasArg("usesk");
+    config->use0183  = server.hasArg("use0183");
+    config->sendGNSS = server.hasArg("sendgnss");
     if (onSave) onSave();
     server.sendHeader("Location", "/", true);
     server.send(302, "text/plain", "");

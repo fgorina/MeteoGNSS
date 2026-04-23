@@ -30,7 +30,6 @@ private:
     static constexpr int      GPS_RX_PIN     = 13;
     static constexpr int      GPS_TX_PIN     = 14;
 
-    // 1000 ms for testing; change to 60000 for 1 sample/min in production
-    static constexpr unsigned long PRESSURE_SAMPLE_INTERVAL = 1000UL;
+    static constexpr unsigned long PRESSURE_SAMPLE_INTERVAL = 1000UL;  // 1 s (testing) - set to 60000 for production
     unsigned long lastPressureSample = 0;
 };

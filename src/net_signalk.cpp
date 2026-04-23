@@ -1,5 +1,7 @@
 #include "net_signalk.h"
 #include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 void NetSignalkWS::onWsEventsCallback(WebsocketsEvent event, String data) {
     if (event == WebsocketsEvent::ConnectionOpened) {
@@ -8,9 +10,9 @@ void NetSignalkWS::onWsEventsCallback(WebsocketsEvent event, String data) {
     } else if (event == WebsocketsEvent::ConnectionClosed) {
         Serial.println("SK: connection closed");
         started = false;
-        // client cleanup deferred to run() — deleting here is unsafe (inside poll())
     } else if (event == WebsocketsEvent::GotPing) {
         client->pong();
+        lastMillis = millis();
     }
 }
 
@@ -20,14 +22,114 @@ void NetSignalkWS::onWsMessageCallback(WebsocketsMessage message) {
         subscribe();
         started = true;
     }
+
     if (!state->signalk_parse_ws(message.data().c_str())) {
         Serial.print("SK unhandled: ");
         Serial.println(message.data());
     }
 }
 
-NetSignalkWS::NetSignalkWS(const char *host, int port, State *state)
-    : host(host), port(port), state(state) {}
+NetSignalkWS::NetSignalkWS(const char *host, int port, State *state, String *token,
+                           const char *clientId, bool *sendGNSS,
+                           std::function<void()> saveCallback)
+    : host(host), port(port), state(state), token(token),
+      clientId(clientId), _sendGNSS(sendGNSS), _saveCallback(saveCallback) {}
+
+void NetSignalkWS::sendPressure() {
+    if (!client || !client->available()) return;
+    if (isnan(state->pressure))          return;
+
+    char msg[192];
+    snprintf(msg, sizeof(msg),
+        "{\"context\":\"vessels.self\",\"updates\":[{\"source\":{\"label\":\"%s\"},"
+        "\"values\":[{\"path\":\"environment.outside.pressure\",\"value\":%.2f}]}]}",
+        clientId, state->pressure * 100.0f);   // hPa -> Pa
+    client->send(msg);
+    lastMillis = millis();
+}
+
+void NetSignalkWS::sendGNSS() {
+    if (!client || !client->available()) return;
+    if (!_sendGNSS || !*_sendGNSS)       return;
+    if (!state->gpsValid)                 return;
+
+    char msg[320];
+    snprintf(msg, sizeof(msg),
+        "{\"context\":\"vessels.self\",\"updates\":[{\"source\":{\"label\":\"%s\"},"
+        "\"values\":["
+        "{\"path\":\"navigation.position\",\"value\":{\"latitude\":%.8f,\"longitude\":%.8f}},"
+        "{\"path\":\"navigation.gnss.horizontalDilution\",\"value\":%.2f},"
+        "{\"path\":\"navigation.gnss.satellites\",\"value\":%d}"
+        "]}]}",
+        clientId, state->lat, state->lon, state->hdop, state->satellites);
+    client->send(msg);
+    lastMillis = millis();
+}
+
+// POST /signalk/v1/access/requests and return the polling href.
+String NetSignalkWS::requestAuth() {
+    HTTPClient http;
+    String url = "http://" + String(host) + ":" + String(port) +
+                 "/signalk/v1/access/requests";
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+
+    char body[200];
+    snprintf(body, sizeof(body),
+             "{\"clientId\":\"%s\",\"description\":\"MeteoGNSS\",\"permissions\":\"readwrite\"}",
+             clientId);
+
+    int code = http.POST(body);
+    String href;
+    if (code >= 200 && code < 300) {
+        JsonDocument doc;
+        if (!deserializeJson(doc, http.getStream())) {
+            const char *h = doc["href"];
+            if (h) {
+                href = String(h);
+                Serial.println("SK auth requested, href: " + href);
+            }
+        }
+    } else {
+        Serial.printf("SK auth request: HTTP %d\n", code);
+    }
+    http.end();
+    return href;
+}
+
+// GET the polling href; if approved, store the JWT and invoke saveCallback.
+bool NetSignalkWS::checkAuth() {
+    if (authHref.isEmpty()) return false;
+
+    HTTPClient http;
+    String url = "http://" + String(host) + ":" + String(port) + authHref;
+    http.begin(url);
+    int code = http.GET();
+    bool approved = false;
+    if (code == 200) {
+        JsonDocument doc;
+        if (!deserializeJson(doc, http.getStream())) {
+            const char *perm = doc["accessRequest"]["permission"];
+            if (perm && strcmp(perm, "APPROVED") == 0) {
+                const char *tok = doc["accessRequest"]["token"];
+                if (tok) {
+                    *token = String(tok);   // store raw JWT
+                    authHref = "";
+                    lastPut  = 0;           // trigger immediate PUT
+                    if (_saveCallback) _saveCallback();
+                    Serial.println("SK auth approved, token stored");
+                    approved = true;
+                }
+            } else {
+                Serial.printf("SK auth status: %s\n", perm ? perm : "null");
+            }
+        }
+    } else {
+        Serial.printf("SK auth check: HTTP %d\n", code);
+    }
+    http.end();
+    return approved;
+}
 
 bool NetSignalkWS::connect() {
     if (strlen(host) == 0 || port == 0) return false;
@@ -37,6 +139,10 @@ bool NetSignalkWS::connect() {
     client = new WebsocketsClient();
     client->onMessage([this](WebsocketsMessage msg) { onWsMessageCallback(msg); });
     client->onEvent([this](WebsocketsEvent ev, String d) { onWsEventsCallback(ev, d); });
+
+    if (token && !token->isEmpty()) {
+        client->addHeader("Authorization", "Bearer " + *token);
+    }
 
     snprintf(buff, sizeof(buff), "ws://%s:%d/signalk/v1/stream?subscribe=none", host, port);
     Serial.print("SK connecting: ");
@@ -76,6 +182,24 @@ void NetSignalkWS::begin() {
 void NetSignalkWS::run() {
     if (WiFi.status() != WL_CONNECTED) return;
 
+    // Auth flow: acquire token if missing
+    if (token && token->isEmpty()) {
+        unsigned long now = millis();
+        if (authHref.isEmpty()) {
+            if (lastAuthReq == 0 || now - lastAuthReq >= AUTH_REQ_INTERVAL) {
+                String href = requestAuth();
+                if (!href.isEmpty()) authHref = href;
+                lastAuthReq = now;
+            }
+        } else {
+            if (now - lastAuthCheck >= AUTH_CHECK_INTERVAL) {
+                checkAuth();
+                lastAuthCheck = now;
+            }
+        }
+    }
+
+    // WebSocket management
     if (client == nullptr) {
         connect();
         return;
@@ -92,11 +216,22 @@ void NetSignalkWS::run() {
     }
     client->poll();
 
-    // If poll() caused the connection to close, clean up now so the next
-    // run() iteration reconnects immediately instead of waiting for timeout.
     if (!client->available()) {
         delete client;
         client  = nullptr;
         started = false;
+        return;
+    }
+
+    unsigned long now = millis();
+
+    if (lastPut == 0 || now - lastPut >= PUT_INTERVAL) {
+        sendPressure();
+        lastPut = now;
+    }
+
+    if (lastGNSS == 0 || now - lastGNSS >= GNSS_INTERVAL) {
+        sendGNSS();
+        lastGNSS = now;
     }
 }

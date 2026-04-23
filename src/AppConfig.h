@@ -10,4 +10,6 @@ struct AppConfig {
     bool   useSK        = true;
     bool   use0183      = false;
     String deviceName;
+    String skToken;        // JWT bearer token for SignalK authenticated writes
+    bool   sendGNSS = false;
 };

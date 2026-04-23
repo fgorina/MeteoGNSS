@@ -5,6 +5,7 @@
 #include "Screen.h"
 #include "Sensors.h"
 #include "State.h"
+#include "SummaryScreen.h"
 #include "net_signalk.h"
 #include "net_webserver.h"
 
@@ -17,34 +18,38 @@
 #include <time.h>
 #include <vector>
 
-// ─── Global state ─────────────────────────────────────────────────────────────
+// --- Global state -------------------------------------------------------------
 AppConfig config;
 State     state;
 Sensors   sensors;
 String    myIp = "Connecting...";
 
-// ─── Hardware ─────────────────────────────────────────────────────────────────
+// --- Hardware -----------------------------------------------------------------
 SemaphoreHandle_t i2cMutex;
 Preferences       prefs;
 
-// ─── Network ──────────────────────────────────────────────────────────────────
+// --- Network ------------------------------------------------------------------
 NetSignalkWS *skWsServer = nullptr;
 NetWebServer *webServer  = nullptr;
 
-// ─── Screens ──────────────────────────────────────────────────────────────────
+// --- Screens ------------------------------------------------------------------
 Screen              *currentScreen = nullptr;
 std::vector<Screen*> screens;
 
-// ─── Task handles ─────────────────────────────────────────────────────────────
+// --- Display saver ------------------------------------------------------------
+static constexpr unsigned long GO_SLEEP_TIMEOUT = 300000ul;  // 5 minutes
+static unsigned long last_touched = 0;
+
+// --- Task handles -------------------------------------------------------------
 TaskHandle_t taskSensor;
 TaskHandle_t taskNetwork;
 TaskHandle_t taskWss;
 
-// ─── Forward declarations ─────────────────────────────────────────────────────
+// --- Forward declarations -----------------------------------------------------
 void writePreferences();
 void switchTo(int i);
 
-// ─── Preferences ──────────────────────────────────────────────────────────────
+// --- Preferences --------------------------------------------------------------
 void writePreferences() {
     prefs.begin("MeteoGNSS", false);
     prefs.putString("SSID",    config.wifiSsid);
@@ -53,8 +58,10 @@ void writePreferences() {
     prefs.putInt   ("SKPORT",  config.skPort);
     prefs.putBool  ("USEN2K",  config.useN2k);
     prefs.putBool  ("USESK",   config.useSK);
-    prefs.putBool  ("USE0183", config.use0183);
-    prefs.putString("DEVNAME", config.deviceName);
+    prefs.putBool  ("USE0183",  config.use0183);
+    prefs.putBool  ("SENDGNSS", config.sendGNSS);
+    prefs.putString("DEVNAME",  config.deviceName);
+    prefs.putString("SKTOKEN",  config.skToken);
     prefs.end();
 }
 
@@ -66,8 +73,10 @@ void readPreferences() {
     config.skPort       = prefs.getInt   ("SKPORT",  config.skPort);
     config.useN2k       = prefs.getBool  ("USEN2K",  config.useN2k);
     config.useSK        = prefs.getBool  ("USESK",   config.useSK);
-    config.use0183      = prefs.getBool  ("USE0183", config.use0183);
-    config.deviceName   = prefs.getString("DEVNAME", "");
+    config.use0183      = prefs.getBool  ("USE0183",  config.use0183);
+    config.sendGNSS     = prefs.getBool  ("SENDGNSS", config.sendGNSS);
+    config.deviceName   = prefs.getString("DEVNAME",  "");
+    config.skToken      = prefs.getString("SKTOKEN",  "");
     prefs.end();
 
     if (config.deviceName.isEmpty()) {
@@ -85,7 +94,7 @@ void readPreferences() {
     Serial.println("===================");
 }
 
-// ─── WiFi ─────────────────────────────────────────────────────────────────────
+// --- WiFi ---------------------------------------------------------------------
 bool checkConnection() {
     return WiFi.status() == WL_CONNECTED;
 }
@@ -135,11 +144,12 @@ void resetNetwork() {
     config.skPort       = 0;
     config.useSK        = false;
     config.useN2k       = false;
+    config.skToken      = "";
     writePreferences();
     ESP.restart();
 }
 
-// ─── Splash ───────────────────────────────────────────────────────────────────
+// --- Splash -------------------------------------------------------------------
 void splash() {
     M5.Display.clear();
     M5.Display.setFont(&fonts::FreeSans9pt7b);
@@ -170,15 +180,21 @@ void splash() {
     }
 }
 
-// ─── Screen switching ─────────────────────────────────────────────────────────
+// --- Screen switching ---------------------------------------------------------
 void switchTo(int i) {
     if (i < 0 || i >= (int)screens.size() || screens[i] == currentScreen) return;
+    if (state.displaySaver != DISPLAY_ACTIVE) {
+        M5.Display.wakeup();
+        M5.Display.setBrightness(128);
+        state.displaySaver = DISPLAY_ACTIVE;
+        last_touched = millis();
+    }
     if (currentScreen) currentScreen->exit(state);
     currentScreen = screens[i];
     currentScreen->enter(state);
 }
 
-// ─── Tasks ────────────────────────────────────────────────────────────────────
+// --- Tasks --------------------------------------------------------------------
 void sensorTask(void *) {
     for (;;) {
         if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -208,7 +224,7 @@ void wssTask(void *) {
     }
 }
 
-// ─── Setup ────────────────────────────────────────────────────────────────────
+// --- Setup --------------------------------------------------------------------
 void setup() {
     Serial.begin(115200);
     M5.begin();
@@ -219,7 +235,8 @@ void setup() {
 
     readPreferences();
 
-    skWsServer = new NetSignalkWS(config.skServer.c_str(), config.skPort, &state);
+    skWsServer = new NetSignalkWS(config.skServer.c_str(), config.skPort, &state, &config.skToken,
+                                  config.deviceName.c_str(), &config.sendGNSS, writePreferences);
     webServer  = new NetWebServer(&config, 80, writePreferences);
 
     if (!config.wifiSsid.isEmpty()) {
@@ -230,9 +247,10 @@ void setup() {
 
     sensors.init();
 
-    screens.push_back(new MeteoScreen(M5.Display.width(), M5.Display.height()));
-    screens.push_back(new PressureScreen(M5.Display.width(), M5.Display.height()));
-    screens.push_back(new GNSSScreen(M5.Display.width(), M5.Display.height()));
+    screens.push_back(new MeteoScreen(M5.Display.width(), M5.Display.height()));    // 0
+    screens.push_back(new PressureScreen(M5.Display.width(), M5.Display.height())); // 1
+    screens.push_back(new GNSSScreen(M5.Display.width(), M5.Display.height()));     // 2
+    screens.push_back(new SummaryScreen(M5.Display.width(), M5.Display.height()));  // 3
 
     xTaskCreatePinnedToCore(sensorTask,  "sensors", 32768, nullptr, 1, &taskSensor,  1);
     xTaskCreate           (networkTask,  "network",  8192, nullptr, 1, &taskNetwork);
@@ -240,10 +258,11 @@ void setup() {
         xTaskCreate(wssTask, "wss", 8192, nullptr, 0, &taskWss);
     }
 
+    last_touched = millis();
     switchTo(0);
 }
 
-// ─── Loop ─────────────────────────────────────────────────────────────────────
+// --- Loop ---------------------------------------------------------------------
 void loop() {
     if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
         M5.update();
@@ -255,10 +274,31 @@ void loop() {
     if (M5.BtnC.isPressed()) switchTo(2);
 
     auto &t = M5.Touch.getDetail(0);
-    if (currentScreen) {
+
+    if (M5.Touch.getCount() > 0 && (t.wasPressed() || t.wasReleased())) {
+        last_touched = millis();
+        if (state.displaySaver == DISPLAY_SLEEPING && t.wasPressed()) {
+            M5.Display.wakeup();
+            M5.Display.setBrightness(128);
+            state.displaySaver = DISPLAY_WAKING;
+        } else if (state.displaySaver == DISPLAY_WAKING && t.wasReleased()) {
+            state.displaySaver = DISPLAY_ACTIVE;
+            last_touched = millis();
+            if (currentScreen) currentScreen->draw(state);
+        }
+    }
+
+    if (millis() - last_touched > GO_SLEEP_TIMEOUT && state.displaySaver == DISPLAY_ACTIVE) {
+        M5.Display.sleep();
+        M5.Display.setBrightness(0);
+        state.displaySaver = DISPLAY_SLEEPING;
+    }
+
+    if (currentScreen && state.displaySaver == DISPLAY_ACTIVE) {
         int next = currentScreen->run(t, state);
         if (next >= 0 && next < (int)screens.size())
             switchTo(next);
     }
-    vTaskDelay(1);
+
+    vTaskDelay(50);
 }
