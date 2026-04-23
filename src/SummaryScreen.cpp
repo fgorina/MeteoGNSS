@@ -30,7 +30,7 @@ static uint16_t twdColor(float twd_rad) {
 
     float deg = fmodf(twd_rad * (180.0f / (float)M_PI) + 360.0f, 360.0f);
     float t   = deg / 45.0f;
-    int   seg = (int)t % 8;
+    int   seg = ((int)t + 4) % 8;   // +4 rotates wheel 180 deg: N -> warm colours
     float f   = t - (float)(int)t;
     int   nxt = (seg + 1) % 8;
 
@@ -166,6 +166,7 @@ void SummaryScreen::draw(State &state) {
                      ? 1.0f
                      : 1.0f - (float)(dist - BRIGHT_SAMPLES)
                                / (float)(count - 1 - BRIGHT_SAMPLES);
+        if (fade < 0.25f) fade = 0.25f;  // keep oldest segments faintly visible
 
         if (lastX >= 0) {
             uint16_t col = isnan(twd) ? TFT_DARKGREY : twdColor(twd);
