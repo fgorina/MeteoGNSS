@@ -48,6 +48,39 @@ void NetSignalkWS::sendPressure() {
     lastMillis = millis();
 }
 
+void NetSignalkWS::sendTendencies() {
+    if (!client || !client->available()) return;
+
+    float t[3] = {
+        state->tendencyHPaPerHour(3),
+        state->tendencyHPaPerHour(12),
+        state->tendencyHPaPerHour(24)
+    };
+    static const char *paths[3] = {
+        "environment.outside.pressureTendency3h",
+        "environment.outside.pressureTendency12h",
+        "environment.outside.pressureTendency24h"
+    };
+
+    char vals[250];
+    int  vlen = 0;
+    for (int i = 0; i < 3; i++) {
+        if (isnan(t[i])) continue;
+        vlen += snprintf(vals + vlen, sizeof(vals) - vlen,
+                         "%s{\"path\":\"%s\",\"value\":%.4f}",
+                         vlen > 0 ? "," : "", paths[i], t[i] * 100.0f);  // hPa/h -> Pa/h
+    }
+    if (vlen == 0) return;
+
+    char msg[380];
+    snprintf(msg, sizeof(msg),
+        "{\"context\":\"vessels.self\",\"updates\":[{\"source\":{\"label\":\"%s\"},"
+        "\"values\":[%s]}]}",
+        clientId, vals);
+    client->send(msg);
+    lastMillis = millis();
+}
+
 void NetSignalkWS::sendGNSS() {
     if (!client || !client->available()) return;
     if (!_sendGNSS || !*_sendGNSS)       return;
@@ -227,6 +260,7 @@ void NetSignalkWS::run() {
 
     if (lastPut == 0 || now - lastPut >= PUT_INTERVAL) {
         sendPressure();
+        sendTendencies();
         lastPut = now;
     }
 

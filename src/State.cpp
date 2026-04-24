@@ -91,6 +91,47 @@ const char *State::tendencyLabel(int hours) const {
     return "Estable";
 }
 
+// -- Wind statistics -----------------------------------------------------------
+// Index of the i-th oldest entry in the last `n` samples of the 1-min buffer.
+static inline int wind1mIdx(int head, int count, int n, int i, int size) {
+    return (head + (count - n) + i) % size;
+}
+
+float State::windAvgTws(int samples) const {
+    int n = (pressure1mCount < samples) ? pressure1mCount : samples;
+    if (n == 0) return NAN;
+    float sum = 0.0f; int cnt = 0;
+    for (int i = 0; i < n; i++) {
+        float v = wind1mTws[wind1mIdx(pressure1mHead, pressure1mCount, n, i, PRESSURE_SIZE_1M)];
+        if (!isnan(v)) { sum += v; cnt++; }
+    }
+    return cnt > 0 ? sum / (float)cnt : NAN;
+}
+
+float State::windAvgTwd(int samples) const {
+    int n = (pressure1mCount < samples) ? pressure1mCount : samples;
+    if (n == 0) return NAN;
+    float sinS = 0.0f, cosS = 0.0f; int cnt = 0;
+    for (int i = 0; i < n; i++) {
+        float v = wind1mTwd[wind1mIdx(pressure1mHead, pressure1mCount, n, i, PRESSURE_SIZE_1M)];
+        if (!isnan(v)) { sinS += sinf(v); cosS += cosf(v); cnt++; }
+    }
+    if (cnt == 0) return NAN;
+    float a = atan2f(sinS, cosS);
+    return a < 0.0f ? a + 2.0f * (float)M_PI : a;
+}
+
+float State::windMaxTws(int samples) const {
+    int n = (pressure1mCount < samples) ? pressure1mCount : samples;
+    if (n == 0) return NAN;
+    float maxV = NAN;
+    for (int i = 0; i < n; i++) {
+        float v = wind1mTws[wind1mIdx(pressure1mHead, pressure1mCount, n, i, PRESSURE_SIZE_1M)];
+        if (!isnan(v) && (isnan(maxV) || v > maxV)) maxV = v;
+    }
+    return maxV;
+}
+
 // -- SignalK parser ------------------------------------------------------------
 
 bool State::signalk_parse_ws(const char *data) {

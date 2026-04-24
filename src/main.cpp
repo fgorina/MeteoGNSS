@@ -6,6 +6,7 @@
 #include "Sensors.h"
 #include "State.h"
 #include "SummaryScreen.h"
+#include "baro_log.h"
 #include "net_signalk.h"
 #include "net_webserver.h"
 
@@ -28,6 +29,9 @@ String    myIp = "Connecting...";
 SemaphoreHandle_t i2cMutex;
 Preferences       prefs;
 
+// --- Logging ------------------------------------------------------------------
+BaroLog *baroLog = nullptr;
+
 // --- Network ------------------------------------------------------------------
 NetSignalkWS *skWsServer = nullptr;
 NetWebServer *webServer  = nullptr;
@@ -40,10 +44,13 @@ std::vector<Screen*> screens;
 static constexpr unsigned long GO_SLEEP_TIMEOUT = 300000ul;  // 5 minutes
 static unsigned long last_touched = 0;
 
+static bool rtcSynced = false;
+
 // --- Task handles -------------------------------------------------------------
 TaskHandle_t taskSensor;
 TaskHandle_t taskNetwork;
 TaskHandle_t taskWss;
+TaskHandle_t taskLog;
 
 // --- Forward declarations -----------------------------------------------------
 void writePreferences();
@@ -224,6 +231,13 @@ void wssTask(void *) {
     }
 }
 
+void logTask(void *) {
+    while (true) {
+        baroLog->run();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 // --- Setup --------------------------------------------------------------------
 void setup() {
     Serial.begin(115200);
@@ -247,6 +261,9 @@ void setup() {
 
     sensors.init();
 
+    baroLog = new BaroLog(&state);
+    baroLog->init();
+
     screens.push_back(new MeteoScreen(M5.Display.width(), M5.Display.height()));    // 0
     screens.push_back(new PressureScreen(M5.Display.width(), M5.Display.height())); // 1
     screens.push_back(new GNSSScreen(M5.Display.width(), M5.Display.height()));     // 2
@@ -257,6 +274,7 @@ void setup() {
     if (config.useSK) {
         xTaskCreate(wssTask, "wss", 8192, nullptr, 0, &taskWss);
     }
+    xTaskCreate(logTask, "baro_log", 8192, nullptr, 1, &taskLog);
 
     last_touched = millis();
     switchTo(0);
@@ -267,6 +285,19 @@ void loop() {
     if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
         M5.update();
         xSemaphoreGive(i2cMutex);
+    }
+
+    if (!rtcSynced && state.timeValid) {
+        m5::rtc_datetime_t dt = {};
+        dt.date.year    = state.year;
+        dt.date.month   = state.month;
+        dt.date.date    = state.day;
+        dt.time.hours   = state.hour;
+        dt.time.minutes = state.minute;
+        dt.time.seconds = state.second;
+        M5.Rtc.setDateTime(dt);
+        rtcSynced = true;
+        Serial.println("Hardware RTC synced from GPS");
     }
 
     if (M5.BtnA.isPressed()) switchTo(0);

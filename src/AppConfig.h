@@ -1,6 +1,9 @@
 #pragma once
 #include <Arduino.h>
 
+// Uncomment to use second-scale intervals instead of minute-scale
+//#define TEST_MODE
+
 struct AppConfig {
     String wifiSsid     = "elrond";
     String wifiPassword = "ailataN1991";

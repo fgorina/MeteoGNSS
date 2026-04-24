@@ -65,6 +65,12 @@ struct State {
     float       tendencyHPaPerHour(int hours = 3) const;
     const char *tendencyLabel     (int hours = 3) const;
 
+    // Wind statistics over the last N samples from the 1-min buffer.
+    // Returns NAN when no valid wind data is available.
+    float windAvgTws(int samples = 5) const;           // m/s, arithmetic mean
+    float windAvgTwd(int samples = 5) const;           // rad, circular mean [0, 2π)
+    float windMaxTws(int samples = 5) const;           // m/s, peak gust
+
     // GPS (from onboard GNSS module)
     bool   gpsValid   = false;
     double lat        = 0;

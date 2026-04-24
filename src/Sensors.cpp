@@ -1,5 +1,6 @@
 #include "Sensors.h"
 #include <Arduino.h>
+#include <sys/time.h>
 
 Sensors::Sensors() : bmp(&Wire) {}
 
@@ -74,5 +75,21 @@ void Sensors::readGPS(State &state) {
         state.hour   = gps.time.hour();
         state.minute = gps.time.minute();
         state.second = gps.time.second();
+
+        if (!_gpsSynced) {
+            struct tm t = {};
+            t.tm_year = state.year  - 1900;
+            t.tm_mon  = state.month - 1;
+            t.tm_mday = state.day;
+            t.tm_hour = state.hour;
+            t.tm_min  = state.minute;
+            t.tm_sec  = state.second;
+            struct timeval tv = { mktime(&t), 0 };
+            settimeofday(&tv, nullptr);
+            _gpsSynced = true;
+            Serial.printf("System clock synced from GPS: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
+                          state.year, state.month, state.day,
+                          state.hour, state.minute, state.second);
+        }
     }
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AppConfig.h"
 #include "State.h"
 #include "BMI270.h"
 #include <Adafruit_BMP280.h>
@@ -30,6 +31,11 @@ private:
     static constexpr int      GPS_RX_PIN     = 13;
     static constexpr int      GPS_TX_PIN     = 14;
 
-    static constexpr unsigned long PRESSURE_SAMPLE_INTERVAL = 1000UL;  // 1 s (testing) - set to 60000 for production
+#ifdef TEST_MODE
+    static constexpr unsigned long PRESSURE_SAMPLE_INTERVAL =  1000UL;  // 1 s
+#else
+    static constexpr unsigned long PRESSURE_SAMPLE_INTERVAL = 60000UL;  // 1 min
+#endif
     unsigned long lastPressureSample = 0;
+    bool          _gpsSynced         = false;
 };

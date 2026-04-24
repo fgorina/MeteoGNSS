@@ -3,6 +3,7 @@
 #include <ArduinoWebsockets.h>
 #include <functional>
 #include "State.h"
+#include "AppConfig.h"
 using namespace websockets;
 
 class NetSignalkWS {
@@ -24,10 +25,15 @@ protected:
     unsigned long     lastAuthReq   = 0;
     unsigned long     lastAuthCheck = 0;
 
-    static constexpr unsigned long PUT_INTERVAL        = 60000UL;
-    static constexpr unsigned long GNSS_INTERVAL       = 1000UL;
+#ifdef TEST_MODE
+    static constexpr unsigned long PUT_INTERVAL        =   1000UL;  // 1 s
+    static constexpr unsigned long GNSS_INTERVAL       =   1000UL;  // 1 s
+#else
+    static constexpr unsigned long PUT_INTERVAL        =  60000UL;  // 1 min
+    static constexpr unsigned long GNSS_INTERVAL       =   1000UL;  // 1 s
+#endif
     static constexpr unsigned long AUTH_REQ_INTERVAL   = 120000UL;
-    static constexpr unsigned long AUTH_CHECK_INTERVAL = 10000UL;
+    static constexpr unsigned long AUTH_CHECK_INTERVAL =  10000UL;
 
     bool   started  = false;
     char   buff[300];
@@ -36,6 +42,7 @@ protected:
     void   onWsEventsCallback(WebsocketsEvent event, String data);
     void   onWsMessageCallback(WebsocketsMessage message);
     void   sendPressure();
+    void   sendTendencies();
     void   sendGNSS();
     String requestAuth();
     bool   checkAuth();
