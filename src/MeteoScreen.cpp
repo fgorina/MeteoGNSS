@@ -136,7 +136,7 @@ void MeteoScreen::draw(State &state) {
         canvas->setFont(&fonts::FreeSans9pt7b);
         canvas->setTextDatum(CL_DATUM);
         canvas->setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        snprintf(buf, sizeof(buf), "Ext: %.1f°C", state.outsideTemperature);
+        snprintf(buf, sizeof(buf), "Ext: %.1f C", state.outsideTemperature);
         canvas->drawString(buf, 20, 110);
     }
 
