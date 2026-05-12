@@ -131,6 +131,15 @@ void MeteoScreen::draw(State &state) {
     canvas->setTextColor(TFT_WHITE, TFT_BLACK);
     canvas->drawString(periodBuf, arrowX + arrowSize / 2, arrowY + arrowSize + 3);
 
+    // External temperature (if available)
+    if (!isnan(state.outsideTemperature)) {
+        canvas->setFont(&fonts::FreeSans9pt7b);
+        canvas->setTextDatum(CL_DATUM);
+        canvas->setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        snprintf(buf, sizeof(buf), "Ext: %.1f°C", state.outsideTemperature);
+        canvas->drawString(buf, 20, 110);
+    }
+
     // -- Divider ---------------------------------------------------------------
     canvas->drawLine(20, 132, width - 20, 132, TFT_DARKGREY);
 

@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <sys/time.h>
 
-Sensors::Sensors() : bmp(&Wire) {}
+Sensors::Sensors() : bmp(&Wire), oneWire(DS18B20_PIN), ds18b20(&oneWire) {}
 
 bool Sensors::init() {
     if (!bmp.begin(BMP280_ADDR)) {
@@ -14,6 +14,11 @@ bool Sensors::init() {
 
     Serial2.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 
+    ds18b20.begin();
+    ds18b20.setWaitForConversion(false);
+    ds18b20.requestTemperatures();
+    lastTempRequest = millis();
+
     return true;
 }
 
@@ -22,6 +27,7 @@ void Sensors::update(State &state) {
     readIMU(state);
     readBaro(state);
     readGPS(state);
+    readExternalTemp(state);
 }
 
 void Sensors::feedGPS() {
@@ -90,6 +96,21 @@ void Sensors::readGPS(State &state) {
             Serial.printf("System clock synced from GPS: %04d-%02d-%02d %02d:%02d:%02d UTC\n",
                           state.year, state.month, state.day,
                           state.hour, state.minute, state.second);
+        }
+    }
+}
+
+void Sensors::readExternalTemp(State &state) {
+    unsigned long now = millis();
+
+    if ((now - lastTempRequest) >= TEMP_CONVERSION_MS) {
+        float temp = ds18b20.getTempCByIndex(0);
+        if (temp != DEVICE_DISCONNECTED_C) {
+            state.outsideTemperature = temp;
+        }
+        if ((now - lastTempRequest) >= TEMP_READ_INTERVAL) {
+            ds18b20.requestTemperatures();
+            lastTempRequest = now;
         }
     }
 }

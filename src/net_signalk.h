@@ -42,6 +42,7 @@ protected:
     void   onWsEventsCallback(WebsocketsEvent event, String data);
     void   onWsMessageCallback(WebsocketsMessage message);
     void   sendPressure();
+    void   sendTemperature();
     void   sendTendencies();
     void   sendGNSS();
     String requestAuth();

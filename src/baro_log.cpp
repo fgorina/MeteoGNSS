@@ -41,7 +41,7 @@ void BaroLog::getDateTime(char date[11], char timeStr[9]) const {
 }
 
 void BaroLog::writeHeader() {
-    _file.println("Time\tLat\tLon\tP_hPa\t"
+    _file.println("Time\tLat\tLon\tP_hPa\tT_degC\t"
                   "Tend3h_hPa_h\tTend12h_hPa_h\tTend24h_hPa_h\t"
                   "TWD_deg\tTWSmax_ms\tTWSavg_ms");
 }
@@ -89,6 +89,12 @@ void BaroLog::appendRow() {
     // Pressure
     if (!isnan(_state->pressure))
         len += snprintf(buf + len, sizeof(buf) - len, "\t%.2f", _state->pressure);
+    else
+        len += snprintf(buf + len, sizeof(buf) - len, "\t");
+
+    // Temperature
+    if (!isnan(_state->temperature))
+        len += snprintf(buf + len, sizeof(buf) - len, "\t%.1f", _state->temperature);
     else
         len += snprintf(buf + len, sizeof(buf) - len, "\t");
 

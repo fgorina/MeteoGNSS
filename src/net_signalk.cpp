@@ -48,6 +48,19 @@ void NetSignalkWS::sendPressure() {
     lastMillis = millis();
 }
 
+void NetSignalkWS::sendTemperature() {
+    if (!client || !client->available()) return;
+    if (isnan(state->temperature))        return;
+
+    char msg[192];
+    snprintf(msg, sizeof(msg),
+        "{\"context\":\"vessels.self\",\"updates\":[{\"source\":{\"label\":\"%s\"},"
+        "\"values\":[{\"path\":\"environment.outside.temperature\",\"value\":%.2f}]}]}",
+        clientId, state->temperature + 273.15f);   // °C -> K
+    client->send(msg);
+    lastMillis = millis();
+}
+
 void NetSignalkWS::sendTendencies() {
     if (!client || !client->available()) return;
 
@@ -260,6 +273,7 @@ void NetSignalkWS::run() {
 
     if (lastPut == 0 || now - lastPut >= PUT_INTERVAL) {
         sendPressure();
+        sendTemperature();
         sendTendencies();
         lastPut = now;
     }

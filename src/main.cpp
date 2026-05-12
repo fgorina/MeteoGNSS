@@ -243,6 +243,8 @@ void setup() {
     Serial.begin(115200);
     M5.begin();
     Wire.begin(21, 22, 400000);
+    pinMode(33, OUTPUT);
+    digitalWrite(33, HIGH);
     i2cMutex = xSemaphoreCreateMutex();
     M5.Display.setFont(&fonts::FreeSans12pt7b);
     M5.Display.setTextSize(1.0);
